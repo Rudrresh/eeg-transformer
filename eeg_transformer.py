@@ -1,4 +1,5 @@
 import os
+import glob
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -227,11 +228,64 @@ def train_model(model, train_loader, test_loader, n_epochs=1000, lr=0.0002):
     
     return best_acc
 
-def main():
+def load_all_npz(data_dir):
+    """
+    Load and concatenate all NPZ files from a directory.
+    
+    Args:
+        data_dir (str): Path to directory containing NPZ files
+    
+    Returns:
+        tuple: (X, y) concatenated arrays from all NPZ files
+    
+    Raises:
+        FileNotFoundError: If no NPZ files found
+        KeyError: If any file is missing X or y arrays
+    """
+    X_list, y_list = [], []
+    npz_files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
+
+    if not npz_files:
+        raise FileNotFoundError(f"No .npz files found in {data_dir}")
+
+    for f in npz_files:
+        try:
+            data = np.load(f)
+            if 'X' not in data or 'y' not in data:
+                raise KeyError(f"File {f} missing 'X' or 'y' arrays")
+            X_list.append(data['X'])
+            y_list.append(data['y'])
+        except Exception as e:
+            print(f"Error loading {f}: {str(e)}")
+            continue
+
+    if not X_list:
+        raise ValueError("No valid data files were loaded")
+
+    X = np.concatenate(X_list, axis=0)
+    y = np.concatenate(y_list, axis=0)
+    print(f"Loaded {len(npz_files)} files, total samples: {X.shape[0]}")
+    return X, y
+
+def main(data_dir=None):
+    """
+    Main training function
+    
+    Args:
+        data_dir (str, optional): Path to data directory. If None, will prompt user.
+    """
+    # Get data directory
+    if data_dir is None:
+        data_dir = input("Enter path to directory containing NPZ files: ").strip()
+        if not data_dir:
+            data_dir = "dataset"  # default fallback
+    
+    # Ensure directory exists
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f"Directory not found: {data_dir}")
+    
     # Load and preprocess data
-    data = np.load('eeg_data.npz')
-    X = data['X']
-    y = data['y']
+    X, y = load_all_npz(data_dir)
     
     # Add channel dimension and ensure labels start from 0
     X = np.expand_dims(X, axis=1)  # Shape becomes (n_epochs, 1, n_channels, n_timepoints)
@@ -269,4 +323,14 @@ def main():
     print(f'Best test accuracy: {best_acc:.4f}')
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description='Train EEG Transformer model')
+    parser.add_argument('--data_dir', type=str, help='Directory containing NPZ files')
+    args = parser.parse_args()
+    
+    try:
+        main(args.data_dir)
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user")
+    except Exception as e:
+        print(f"Error during execution: {str(e)}")
